@@ -1,5 +1,5 @@
 import { Command } from "commander";
-
+import { addHost } from "../system/hosts";
 import { setDomain } from "../config/config";
 
 export const startCommand = new Command("start")
@@ -12,5 +12,6 @@ export const startCommand = new Command("start")
 		}
 
 		const domain = await setDomain(name, port);
+		// await addHost(domain);
 		console.log(`✓ https://${domain} -> localhost:${port}`);
 	});
