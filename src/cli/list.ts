@@ -1,7 +1,10 @@
 // src/cli/list.ts
 import { Command } from "commander";
 import { loadConfig } from "../config/config";
-
+import { checkPort } from "../proxy/health";
+function statusLabel(isHealthy: boolean): string {
+	return isHealthy ? "reachable" : "unreachable";
+}
 export const listCommand = new Command("list")
 	.description("List domains")
 	.action(async () => {
@@ -12,10 +15,19 @@ export const listCommand = new Command("list")
 			return;
 		}
 
-		for (const d of config.domains) {
-			console.log(`https://${d.name} -> localhost:${d.port}`);
-			for (const r of d.routes ?? []) {
-				console.log(`  https://${d.name}${r.path} -> localhost:${r.port}`);
+		for (const domain of config.domains) {
+			const healthy = await checkPort(domain.port);
+			console.log(
+				`http://${domain.name} -> localhost:${domain.port} (${statusLabel(healthy)})`,
+			);
+			for (const route of domain.routes ?? []) {
+				const routeHealthy = await checkPort(route.port);
+
+				console.log(
+					`  http://${domain.name}${route.path} -> localhost:${
+						route.port
+					} (${statusLabel(routeHealthy)})`,
+				);
 			}
 		}
 	});
