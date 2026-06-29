@@ -5,9 +5,15 @@ import { removeHost } from "../system/hosts";
 
 export const stopCommand = new Command("stop")
 	.argument("<name>")
-	.action(async (name: string) => {
+	.option("--hosts", "Also remove the /etc/hosts entry (may require sudo)")
+	.action(async (name: string, options: any) => {
 		const domain = normalizeDomain(name);
 		await removeDomain(domain);
-		// await removeHost(domain);
+
+		if (options.hosts) {
+			await removeHost(domain);
+			console.log(`✓ /etc/hosts entry removed for ${domain}`);
+		}
+
 		console.log(`Stopped ${domain}`);
 	});
