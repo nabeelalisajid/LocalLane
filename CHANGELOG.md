@@ -4,6 +4,16 @@ All notable changes to LocalLane are documented in this file.
 
 ## [Unreleased]
 
+### Added — Port forwarding
+
+- **TCP port forwarder** (`src/system/port-forward.ts`, `src/cli/forward.ts`):
+  the `forward` command pipes the privileged ports `80`/`443` to the proxy's
+  unprivileged `10080`/`10443`, so domains can be reached without a port suffix.
+  It is a raw byte pipe (no HTTP parsing), so it works for both HTTP and the
+  TLS-terminating HTTPS proxy. Mappings are configurable
+  (`--http from:to`, `--https from:to`, `--no-http`, `--no-https`), and bind
+  failures report a clear message (EACCES → needs sudo, EADDRINUSE → in use).
+
 ### Added — Unix socket IPC
 
 - **IPC control channel** (`src/daemon/ipc.ts`): the proxy can expose a

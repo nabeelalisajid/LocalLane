@@ -139,6 +139,7 @@ src/
 
   system/
     hosts.ts
+    port-forward.ts   # 80/443 -> 10080/10443
 ```
 
 Future structure (stubs that are scaffolded but not yet implemented):
@@ -496,6 +497,27 @@ The daemon exposes a control channel on a Unix socket
 
 ---
 
+### `forward`
+
+Forward the privileged ports `80`/`443` to the proxy so domains work without a
+port suffix (e.g. `http://myapp.test` instead of `http://myapp.test:10080`):
+
+```bash
+sudo node dist/index.js forward            # 80 -> 10080 and 443 -> 10443
+sudo node dist/index.js forward --no-https # only 80 -> 10080
+node dist/index.js forward --http 8080:10080 --no-https  # custom, unprivileged
+```
+
+Behavior:
+
+- Raw TCP pipe, so it works for both the HTTP and HTTPS proxies (TLS is
+  terminated downstream by the HTTPS proxy)
+- Mappings are configurable via `--http from:to` / `--https from:to`
+- Binding `80`/`443` requires `sudo`; a permission error is reported clearly
+- Runs in the foreground; press Ctrl+C to stop
+
+---
+
 ### `doctor`
 
 ```bash
@@ -586,8 +608,8 @@ Or, once the CA is trusted and `--hosts` has added the entry, open
 proxy with `--redirect`.
 
 > Note: ports `10443`/`10080` are used because binding `443`/`80` requires
-> elevated privileges. Forwarding `443 -> 10443` and `80 -> 10080` is on the
-> roadmap.
+> elevated privileges. Use [`forward`](#forward) to map `443 -> 10443` and
+> `80 -> 10080` and drop the port suffix.
 
 ---
 
@@ -595,7 +617,6 @@ proxy with `--redirect`.
 
 LocalLane does not yet:
 
-- Bind directly to ports `80`/`443` (uses `10080`/`10443`)
 - Expose local apps publicly
 
 For plain HTTP without a hosts entry, use `curl` with a `Host` header:
@@ -651,10 +672,10 @@ Implemented:
 - Run HTTPS proxy on port `10443` (`proxy --https`)
 - Redirect HTTP to HTTPS (`proxy --redirect`)
 
-Remaining (manual / roadmap):
+Remaining (manual):
 
 - Trusting the root CA is a one-time manual step (printed by `ca`)
-- Binding `443`/`80` directly via port forwarding
+- Binding `443`/`80` directly needs `sudo` (see the `forward` command)
 
 ---
 
