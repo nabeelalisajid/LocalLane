@@ -111,6 +111,7 @@ src/
     proxy.ts
     doctor.ts
     root.ts      # `ca` command
+    daemon.ts
 
   config/
     path.ts
@@ -125,6 +126,9 @@ src/
   cert/
     ca.ts        # local root CA
     leaf.ts      # per-domain certificates
+
+  daemon/
+    daemon.ts    # background process management
 
   doctor/
     doctor.ts
@@ -141,7 +145,6 @@ Future structure (stubs that are scaffolded but not yet implemented):
 ```text
 src/
   daemon/
-    daemon.ts
     ipc.ts
 
   tunnel/
@@ -466,6 +469,27 @@ See [HTTPS](#https) below for the full workflow.
 
 ---
 
+### `daemon`
+
+Run the proxy in the background instead of the foreground:
+
+```bash
+node dist/index.js daemon start              # background HTTP proxy
+node dist/index.js daemon start --https      # also HTTPS on 10443
+node dist/index.js daemon status             # is it running?
+node dist/index.js daemon stop               # stop it
+```
+
+Behavior:
+
+- `start` spawns the `proxy` command as a detached process and records its PID
+  in `~/.locallane/locallane.pid`; output is appended to
+  `~/.locallane/daemon.log`
+- `status` reports whether the daemon is running (and clears stale PID files)
+- `stop` terminates the running daemon
+
+---
+
 ### `doctor`
 
 ```bash
@@ -566,7 +590,6 @@ proxy with `--redirect`.
 LocalLane does not yet:
 
 - Bind directly to ports `80`/`443` (uses `10080`/`10443`)
-- Run as a background daemon
 - Reload config through IPC
 - Expose local apps publicly
 
@@ -630,35 +653,32 @@ Remaining (manual / roadmap):
 
 ---
 
-## Planned Daemon Support
+## Daemon Support
 
-Current behavior:
+The proxy can run in the foreground:
 
 ```bash
 node dist/index.js proxy
 ```
 
-runs in the foreground.
-
-Future behavior:
+…or detached in the background:
 
 ```bash
-locallane start myapp --port 3000
+node dist/index.js daemon start --https
+node dist/index.js daemon status
+node dist/index.js daemon stop
 ```
 
-should:
-
-- Save config
-- Start daemon if not running
-- Reload daemon if already running
-- Exit CLI while proxy keeps running
-
-Expected daemon files:
+The daemon spawns the `proxy` command as a detached process, records its PID,
+and logs to a file:
 
 ```text
 ~/.locallane/locallane.pid
-~/.locallane/locallane.sock
+~/.locallane/daemon.log
 ```
+
+A Unix-socket control channel (`~/.locallane/locallane.sock`) for live reloads is
+on the roadmap.
 
 ---
 
