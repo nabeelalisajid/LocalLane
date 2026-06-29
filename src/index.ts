@@ -6,6 +6,7 @@ import { listCommand } from "./cli/list";
 import { stopCommand } from "./cli/stop";
 import { proxyCommand } from "./cli/proxy";
 import { doctorCommand } from "./cli/doctor";
+import { caCommand } from "./cli/root";
 
 const program = new Command();
 
@@ -19,5 +20,6 @@ program.addCommand(listCommand);
 program.addCommand(stopCommand);
 program.addCommand(proxyCommand);
 program.addCommand(doctorCommand);
+program.addCommand(caCommand);
 
 program.parse();
