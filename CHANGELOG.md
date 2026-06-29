@@ -4,6 +4,17 @@ All notable changes to LocalLane are documented in this file.
 
 ## [Unreleased]
 
+### Added — Background daemon
+
+- **Background daemon** (`src/daemon/daemon.ts`, `src/cli/daemon.ts`): run the
+  proxy detached from the terminal.
+  - `daemon start [--https] [--redirect]` spawns the `proxy` command as a
+    detached process, tracks its PID in `~/.locallane/locallane.pid`, and
+    appends output to `~/.locallane/daemon.log`.
+  - `daemon stop` terminates the running daemon.
+  - `daemon status` reports whether it is running (and cleans up stale PID
+    files).
+
 ### Added — HTTPS support
 
 - **Local root CA** (`src/cert/ca.ts`): generates and caches a self-signed root
