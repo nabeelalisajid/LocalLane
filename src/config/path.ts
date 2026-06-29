@@ -6,6 +6,7 @@ export const CONFIG_PATH = path.join(BASE_DIR, "config.yaml");
 export const LOG_PATH = path.join(BASE_DIR, "access.log");
 export const PID_PATH = path.join(BASE_DIR, "locallane.pid");
 export const SOCKET_PATH = path.join(BASE_DIR, "locallane.sock");
+export const DAEMON_LOG_PATH = path.join(BASE_DIR, "daemon.log");
 
 // Local root CA (key + self-signed cert) used to sign per-domain leaf certs.
 export const CA_DIR = path.join(BASE_DIR, "ca");

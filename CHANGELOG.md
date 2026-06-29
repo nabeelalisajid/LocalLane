@@ -4,6 +4,54 @@ All notable changes to LocalLane are documented in this file.
 
 ## [Unreleased]
 
+### Added — Public WebSocket tunnel
+
+- **Tunnel server** (`src/tunnel/server.ts`) and **client** (`src/tunnel/client.ts`)
+  with a shared message protocol (`src/tunnel/protocol.ts`), exposing local apps
+  publicly over a single WebSocket:
+  - `tunnel-server [--port 9000] [--host lvh.me]` runs the public server. Each
+    connected client is assigned a random subdomain; public requests are routed
+    to the client matching the first Host label and forwarded over the socket.
+  - `share --port <port> [--server ws://...]` connects a local client, prints
+    its public URL, and replays forwarded requests against the local app.
+  - Request/response bodies are base64-framed (binary-safe); hop-by-hop response
+    headers are stripped; requests that get no reply time out with a 504.
+- Verified end-to-end: GET (with query string), POST (with body), and response
+  headers all round-trip through the tunnel; unknown subdomains return 404.
+
+### Added — Port forwarding
+
+- **TCP port forwarder** (`src/system/port-forward.ts`, `src/cli/forward.ts`):
+  the `forward` command pipes the privileged ports `80`/`443` to the proxy's
+  unprivileged `10080`/`10443`, so domains can be reached without a port suffix.
+  It is a raw byte pipe (no HTTP parsing), so it works for both HTTP and the
+  TLS-terminating HTTPS proxy. Mappings are configurable
+  (`--http from:to`, `--https from:to`, `--no-http`, `--no-https`), and bind
+  failures report a clear message (EACCES → needs sudo, EADDRINUSE → in use).
+
+### Added — Unix socket IPC
+
+- **IPC control channel** (`src/daemon/ipc.ts`): the proxy can expose a
+  newline-delimited JSON control server on `~/.locallane/locallane.sock`
+  (`proxy --ipc`; the daemon enables it automatically). Commands: `ping`,
+  `status` (pid, uptime, configured domains), `reload` (clears the SNI cert
+  cache), and `shutdown` (graceful exit). The socket is removed on exit.
+- **Daemon IPC subcommands** (`src/cli/daemon.ts`): `daemon ping`,
+  `daemon reload`, and a richer `daemon status` that reports live uptime and
+  domains. `daemon stop` now shuts down gracefully over IPC before falling back
+  to a signal.
+
+### Added — Background daemon
+
+- **Background daemon** (`src/daemon/daemon.ts`, `src/cli/daemon.ts`): run the
+  proxy detached from the terminal.
+  - `daemon start [--https] [--redirect]` spawns the `proxy` command as a
+    detached process, tracks its PID in `~/.locallane/locallane.pid`, and
+    appends output to `~/.locallane/daemon.log`.
+  - `daemon stop` terminates the running daemon.
+  - `daemon status` reports whether it is running (and cleans up stale PID
+    files).
+
 ### Added — HTTPS support
 
 - **Local root CA** (`src/cert/ca.ts`): generates and caches a self-signed root

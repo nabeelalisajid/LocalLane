@@ -59,17 +59,18 @@ LocalLane currently supports:
 - Access logs (`~/.locallane/access.log`)
 - HTTPS proxy with a local root CA and per-domain certificates (SNI)
 - HTTP to HTTPS redirect
+- Background daemon with a Unix-socket IPC control channel
+- Port forwarding from `80`/`443` to `10080`/`10443`
+- Public WebSocket tunnel (`share` + `tunnel-server`)
 
 ---
 
 ## Roadmap
 
-Planned features:
+All core features are implemented (HTTP/HTTPS proxy, routing, hosts integration,
+diagnostics, access logs, background daemon, IPC, port forwarding, and the public
+tunnel). Remaining:
 
-- Port forwarding from `80 -> 10080` and `443 -> 10443`
-- Background daemon
-- Unix socket IPC
-- Public WebSocket tunnel
 - Go implementation
 
 ---
@@ -111,6 +112,7 @@ src/
     proxy.ts
     doctor.ts
     root.ts      # `ca` command
+    daemon.ts
 
   config/
     path.ts
@@ -126,6 +128,10 @@ src/
     ca.ts        # local root CA
     leaf.ts      # per-domain certificates
 
+  daemon/
+    daemon.ts    # background process management
+    ipc.ts       # unix socket control channel
+
   doctor/
     doctor.ts
 
@@ -134,20 +140,16 @@ src/
 
   system/
     hosts.ts
-```
-
-Future structure (stubs that are scaffolded but not yet implemented):
-
-```text
-src/
-  daemon/
-    daemon.ts
-    ipc.ts
+    port-forward.ts   # 80/443 -> 10080/10443
 
   tunnel/
-    client.ts
-    server.ts
+    protocol.ts       # shared message protocol
+    server.ts         # public tunnel server
+    client.ts         # local tunnel client
 ```
+
+All roadmap features through the public tunnel are now implemented. The only
+remaining planned item is the Go rewrite (see below).
 
 ---
 
@@ -466,6 +468,78 @@ See [HTTPS](#https) below for the full workflow.
 
 ---
 
+### `daemon`
+
+Run the proxy in the background instead of the foreground:
+
+```bash
+node dist/index.js daemon start              # background HTTP proxy
+node dist/index.js daemon start --https      # also HTTPS on 10443
+node dist/index.js daemon status             # running? uptime + domains
+node dist/index.js daemon ping               # check the IPC channel
+node dist/index.js daemon reload             # clear the TLS cert cache
+node dist/index.js daemon stop               # stop it (graceful via IPC)
+```
+
+Behavior:
+
+- `start` spawns the `proxy --ipc` command as a detached process and records its
+  PID in `~/.locallane/locallane.pid`; output is appended to
+  `~/.locallane/daemon.log`
+- `status` reports whether the daemon is running (clears stale PID files) and,
+  via the IPC channel, its uptime and configured domains
+- `ping` / `reload` talk to the daemon over its Unix socket
+- `stop` asks the daemon to shut down gracefully over IPC, then falls back to a
+  signal if needed
+
+The daemon exposes a control channel on a Unix socket
+(`~/.locallane/locallane.sock`); see [IPC](#ipc) below.
+
+---
+
+### `forward`
+
+Forward the privileged ports `80`/`443` to the proxy so domains work without a
+port suffix (e.g. `http://myapp.test` instead of `http://myapp.test:10080`):
+
+```bash
+sudo node dist/index.js forward            # 80 -> 10080 and 443 -> 10443
+sudo node dist/index.js forward --no-https # only 80 -> 10080
+node dist/index.js forward --http 8080:10080 --no-https  # custom, unprivileged
+```
+
+Behavior:
+
+- Raw TCP pipe, so it works for both the HTTP and HTTPS proxies (TLS is
+  terminated downstream by the HTTPS proxy)
+- Mappings are configurable via `--http from:to` / `--https from:to`
+- Binding `80`/`443` requires `sudo`; a permission error is reported clearly
+- Runs in the foreground; press Ctrl+C to stop
+
+---
+
+### `share` / `tunnel-server`
+
+Expose a local app to the public internet through a tunnel server (see
+[Public Tunnel](#public-tunnel)).
+
+Run the public server (on a machine with a public address):
+
+```bash
+node dist/index.js tunnel-server --port 9000 --host example.com
+```
+
+Expose a local port through it:
+
+```bash
+node dist/index.js share --port 3000 --server ws://example.com:9000/__tunnel
+```
+
+`share` prints a public URL like `http://ab12cd34.example.com:9000` that maps
+back to `localhost:3000`.
+
+---
+
 ### `doctor`
 
 ```bash
@@ -556,8 +630,8 @@ Or, once the CA is trusted and `--hosts` has added the entry, open
 proxy with `--redirect`.
 
 > Note: ports `10443`/`10080` are used because binding `443`/`80` requires
-> elevated privileges. Forwarding `443 -> 10443` and `80 -> 10080` is on the
-> roadmap.
+> elevated privileges. Use [`forward`](#forward) to map `443 -> 10443` and
+> `80 -> 10080` and drop the port suffix.
 
 ---
 
@@ -565,10 +639,8 @@ proxy with `--redirect`.
 
 LocalLane does not yet:
 
-- Bind directly to ports `80`/`443` (uses `10080`/`10443`)
-- Run as a background daemon
-- Reload config through IPC
-- Expose local apps publicly
+- Provide a hosted public tunnel server (you run your own — see
+  [Public Tunnel](#public-tunnel))
 
 For plain HTTP without a hosts entry, use `curl` with a `Host` header:
 
@@ -623,64 +695,102 @@ Implemented:
 - Run HTTPS proxy on port `10443` (`proxy --https`)
 - Redirect HTTP to HTTPS (`proxy --redirect`)
 
-Remaining (manual / roadmap):
+Remaining (manual):
 
 - Trusting the root CA is a one-time manual step (printed by `ca`)
-- Binding `443`/`80` directly via port forwarding
+- Binding `443`/`80` directly needs `sudo` (see the `forward` command)
 
 ---
 
-## Planned Daemon Support
+## Daemon Support
 
-Current behavior:
+The proxy can run in the foreground:
 
 ```bash
 node dist/index.js proxy
 ```
 
-runs in the foreground.
-
-Future behavior:
+…or detached in the background:
 
 ```bash
-locallane start myapp --port 3000
+node dist/index.js daemon start --https
+node dist/index.js daemon status
+node dist/index.js daemon stop
 ```
 
-should:
-
-- Save config
-- Start daemon if not running
-- Reload daemon if already running
-- Exit CLI while proxy keeps running
-
-Expected daemon files:
+The daemon spawns the `proxy --ipc` command as a detached process, records its
+PID, and logs to a file:
 
 ```text
 ~/.locallane/locallane.pid
-~/.locallane/locallane.sock
+~/.locallane/daemon.log
+~/.locallane/locallane.sock   # IPC control channel
 ```
 
 ---
 
-## Planned Public Tunnel
+## IPC
 
-Future command:
+When the proxy runs with `--ipc` (always the case under the daemon), it exposes
+a control channel on a Unix socket at `~/.locallane/locallane.sock`. Messages are
+newline-delimited JSON.
 
-```bash
-locallane share --port 3000
-```
+Supported commands:
 
-Expected architecture:
+| Command    | Response                                      |
+|------------|-----------------------------------------------|
+| `ping`     | `{ ok: true, pong: true }`                    |
+| `status`   | `{ ok: true, pid, uptimeMs, domains: [...] }` |
+| `reload`   | clears the SNI cert cache                     |
+| `shutdown` | graceful exit                                 |
+
+These back the `daemon ping`, `daemon status`, `daemon reload`, and `daemon stop`
+commands. Configured domains are re-read from `config.yaml` on every request, so
+adding or removing a domain takes effect without a reload; `reload` is only
+needed to drop cached TLS certificates.
+
+---
+
+<a id="public-tunnel"></a>
+
+## Public Tunnel
+
+LocalLane can expose a local app to the public internet through a self-hosted
+tunnel server.
+
+Architecture:
 
 ```text
 Public user
-  -> remote LocalLane tunnel server
+  -> LocalLane tunnel server   (tunnel-server, public host)
   -> WebSocket connection
-  -> local LocalLane client
+  -> LocalLane tunnel client   (share, your machine)
   -> localhost:3000
 ```
 
-This will be built after the local proxy, HTTPS, daemon, and IPC features are stable.
+1. On a machine with a public address, run the server:
+
+   ```bash
+   node dist/index.js tunnel-server --port 9000 --host example.com
+   ```
+
+2. On your machine, expose a local port:
+
+   ```bash
+   node dist/index.js share --port 3000 --server ws://example.com:9000/__tunnel
+   ```
+
+   `share` prints a public URL such as `http://ab12cd34.example.com:9000`.
+
+Each client is assigned a random subdomain; the server routes a public request
+to the matching client by the first label of the `Host` header, forwards it over
+the WebSocket, and writes back the client's response. Request and response
+bodies are binary-safe, and requests that receive no reply time out with a
+`504`.
+
+> For wildcard-subdomain routing in a browser you need `*.example.com` pointing
+> at the server. For local testing, a wildcard DNS host like `lvh.me`
+> (`*.lvh.me -> 127.0.0.1`) or a `Host` header works.
 
 ---
 
