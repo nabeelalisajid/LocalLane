@@ -4,6 +4,18 @@ All notable changes to LocalLane are documented in this file.
 
 ## [Unreleased]
 
+### Added — Unix socket IPC
+
+- **IPC control channel** (`src/daemon/ipc.ts`): the proxy can expose a
+  newline-delimited JSON control server on `~/.locallane/locallane.sock`
+  (`proxy --ipc`; the daemon enables it automatically). Commands: `ping`,
+  `status` (pid, uptime, configured domains), `reload` (clears the SNI cert
+  cache), and `shutdown` (graceful exit). The socket is removed on exit.
+- **Daemon IPC subcommands** (`src/cli/daemon.ts`): `daemon ping`,
+  `daemon reload`, and a richer `daemon status` that reports live uptime and
+  domains. `daemon stop` now shuts down gracefully over IPC before falling back
+  to a signal.
+
 ### Added — Background daemon
 
 - **Background daemon** (`src/daemon/daemon.ts`, `src/cli/daemon.ts`): run the

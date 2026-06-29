@@ -129,6 +129,7 @@ src/
 
   daemon/
     daemon.ts    # background process management
+    ipc.ts       # unix socket control channel
 
   doctor/
     doctor.ts
@@ -144,9 +145,6 @@ Future structure (stubs that are scaffolded but not yet implemented):
 
 ```text
 src/
-  daemon/
-    ipc.ts
-
   tunnel/
     client.ts
     server.ts
@@ -476,17 +474,25 @@ Run the proxy in the background instead of the foreground:
 ```bash
 node dist/index.js daemon start              # background HTTP proxy
 node dist/index.js daemon start --https      # also HTTPS on 10443
-node dist/index.js daemon status             # is it running?
-node dist/index.js daemon stop               # stop it
+node dist/index.js daemon status             # running? uptime + domains
+node dist/index.js daemon ping               # check the IPC channel
+node dist/index.js daemon reload             # clear the TLS cert cache
+node dist/index.js daemon stop               # stop it (graceful via IPC)
 ```
 
 Behavior:
 
-- `start` spawns the `proxy` command as a detached process and records its PID
-  in `~/.locallane/locallane.pid`; output is appended to
+- `start` spawns the `proxy --ipc` command as a detached process and records its
+  PID in `~/.locallane/locallane.pid`; output is appended to
   `~/.locallane/daemon.log`
-- `status` reports whether the daemon is running (and clears stale PID files)
-- `stop` terminates the running daemon
+- `status` reports whether the daemon is running (clears stale PID files) and,
+  via the IPC channel, its uptime and configured domains
+- `ping` / `reload` talk to the daemon over its Unix socket
+- `stop` asks the daemon to shut down gracefully over IPC, then falls back to a
+  signal if needed
+
+The daemon exposes a control channel on a Unix socket
+(`~/.locallane/locallane.sock`); see [IPC](#ipc) below.
 
 ---
 
@@ -590,7 +596,6 @@ proxy with `--redirect`.
 LocalLane does not yet:
 
 - Bind directly to ports `80`/`443` (uses `10080`/`10443`)
-- Reload config through IPC
 - Expose local apps publicly
 
 For plain HTTP without a hosts entry, use `curl` with a `Host` header:
@@ -669,16 +674,36 @@ node dist/index.js daemon status
 node dist/index.js daemon stop
 ```
 
-The daemon spawns the `proxy` command as a detached process, records its PID,
-and logs to a file:
+The daemon spawns the `proxy --ipc` command as a detached process, records its
+PID, and logs to a file:
 
 ```text
 ~/.locallane/locallane.pid
 ~/.locallane/daemon.log
+~/.locallane/locallane.sock   # IPC control channel
 ```
 
-A Unix-socket control channel (`~/.locallane/locallane.sock`) for live reloads is
-on the roadmap.
+---
+
+## IPC
+
+When the proxy runs with `--ipc` (always the case under the daemon), it exposes
+a control channel on a Unix socket at `~/.locallane/locallane.sock`. Messages are
+newline-delimited JSON.
+
+Supported commands:
+
+| Command    | Response                                      |
+|------------|-----------------------------------------------|
+| `ping`     | `{ ok: true, pong: true }`                    |
+| `status`   | `{ ok: true, pid, uptimeMs, domains: [...] }` |
+| `reload`   | clears the SNI cert cache                     |
+| `shutdown` | graceful exit                                 |
+
+These back the `daemon ping`, `daemon status`, `daemon reload`, and `daemon stop`
+commands. Configured domains are re-read from `config.yaml` on every request, so
+adding or removing a domain takes effect without a reload; `reload` is only
+needed to drop cached TLS certificates.
 
 ---
 

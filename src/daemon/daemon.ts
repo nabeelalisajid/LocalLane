@@ -7,6 +7,7 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import fs from "fs-extra";
 import { BASE_DIR, DAEMON_LOG_PATH, PID_PATH } from "../config/path";
+import { sendCommand } from "./ipc";
 
 export type DaemonOptions = {
 	https?: boolean;
@@ -58,7 +59,7 @@ export async function startDaemon(
 	await fs.ensureDir(BASE_DIR);
 	const logFd = await fs.open(DAEMON_LOG_PATH, "a");
 
-	const args = [entryPoint(), "proxy"];
+	const args = [entryPoint(), "proxy", "--ipc"];
 	if (options.redirect) args.push("--redirect");
 	else if (options.https) args.push("--https");
 
@@ -86,12 +87,31 @@ export async function stopDaemon(): Promise<number | null> {
 	const pid = await getDaemonPid();
 	if (!pid) return null;
 
+	// Prefer a graceful shutdown over the IPC channel; fall back to a signal.
 	try {
-		process.kill(pid);
-	} catch (err: any) {
-		if (err.code !== "ESRCH") throw err;
+		await sendCommand({ cmd: "shutdown" });
+		await waitForExit(pid, 1500);
+	} catch {
+		// IPC unavailable — fall through to signalling the process.
+	}
+
+	if (isAlive(pid)) {
+		try {
+			process.kill(pid);
+		} catch (err: any) {
+			if (err.code !== "ESRCH") throw err;
+		}
 	}
 
 	await fs.remove(PID_PATH).catch(() => {});
 	return pid;
+}
+
+/** Polls until the process exits or the timeout elapses. */
+async function waitForExit(pid: number, timeoutMs: number): Promise<void> {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		if (!isAlive(pid)) return;
+		await new Promise((r) => setTimeout(r, 50));
+	}
 }

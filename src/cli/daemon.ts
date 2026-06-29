@@ -2,6 +2,7 @@
 import { Command } from "commander";
 import { DAEMON_LOG_PATH } from "../config/path";
 import { getDaemonPid, startDaemon, stopDaemon } from "../daemon/daemon";
+import { sendCommand } from "../daemon/ipc";
 
 const daemon = new Command("daemon").description(
 	"Run the proxy in the background",
@@ -50,6 +51,47 @@ daemon
 			return;
 		}
 		console.log(`Daemon is running (pid ${pid})`);
+
+		// Enrich with live info from the IPC control channel, if available.
+		try {
+			const res = await sendCommand({ cmd: "status" });
+			if (res.ok) {
+				const seconds = Math.floor(Number(res.uptimeMs ?? 0) / 1000);
+				const domains = (res.domains as string[]) ?? [];
+				console.log(`  uptime: ${seconds}s`);
+				console.log(
+					`  domains: ${domains.length ? domains.join(", ") : "(none)"}`,
+				);
+			}
+		} catch {
+			console.log("  (IPC control channel not responding)");
+		}
+	});
+
+daemon
+	.command("reload")
+	.description("Ask the daemon to reload (clears the TLS cert cache)")
+	.action(async () => {
+		try {
+			const res = await sendCommand({ cmd: "reload" });
+			console.log(res.ok ? "✓ Daemon reloaded" : `Reload failed: ${res.error}`);
+		} catch {
+			console.log("Daemon is not running or not responding");
+			process.exitCode = 1;
+		}
+	});
+
+daemon
+	.command("ping")
+	.description("Check the daemon's IPC control channel")
+	.action(async () => {
+		try {
+			const res = await sendCommand({ cmd: "ping" });
+			console.log(res.pong ? "pong" : JSON.stringify(res));
+		} catch {
+			console.log("Daemon is not running or not responding");
+			process.exitCode = 1;
+		}
 	});
 
 export const daemonCommand = daemon;

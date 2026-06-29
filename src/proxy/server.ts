@@ -11,6 +11,23 @@ import { ensureLeafCert } from "../cert/leaf";
 
 const proxy = httpProxy.createProxyServer({});
 
+// Per-domain TLS contexts loaded lazily via SNI. Kept at module scope so the
+// IPC `reload` command can clear it without restarting the proxy.
+const contextCache = new Map<string, tls.SecureContext>();
+
+// When the proxy started, used by the IPC `status` command to report uptime.
+const startedAt = Date.now();
+
+/** Milliseconds since the proxy process started serving. */
+export function getUptimeMs(): number {
+	return Date.now() - startedAt;
+}
+
+/** Drops all cached TLS contexts so changed certs are reloaded on next use. */
+export function clearCertCache(): void {
+	contextCache.clear();
+}
+
 proxy.on("error", (err, _req, res) => {
 	const response = res as http.ServerResponse;
 
@@ -87,8 +104,6 @@ export async function startHttpProxy() {
  * generated/cached on demand and signed by the local root CA.
  */
 export async function startHttpsProxy() {
-	const contextCache = new Map<string, tls.SecureContext>();
-
 	async function getContext(servername: string): Promise<tls.SecureContext> {
 		const cached = contextCache.get(servername);
 		if (cached) return cached;
