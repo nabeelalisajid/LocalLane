@@ -50,10 +50,13 @@ LocalLane currently supports:
 - Start/list/stop commands
 - HTTP reverse proxy
 - Host-based routing
-- Path-based route support
+- Path-based route support (correctly forwards to the matched route port)
 - Route prefix stripping
 - Upstream health checks
 - Clean `502 Bad Gateway` handling when upstream apps are down
+- Explicit `/etc/hosts` integration with `--hosts`
+- `doctor` command for diagnostics
+- Access logs (`~/.locallane/access.log`)
 
 ---
 
@@ -61,9 +64,6 @@ LocalLane currently supports:
 
 Planned features:
 
-- Explicit `/etc/hosts` integration with `--hosts`
-- `doctor` command for diagnostics
-- Access logs
 - HTTPS support
 - Local root CA generation
 - Per-domain TLS certificates
@@ -112,20 +112,29 @@ src/
     stop.ts
     list.ts
     proxy.ts
+    doctor.ts
 
   config/
     path.ts
     config.ts
+    validation.ts
 
   proxy/
     server.ts
+    router.ts
     health.ts
+
+  doctor/
+    doctor.ts
+
+  log/
+    logger.ts
 
   system/
     hosts.ts
 ```
 
-Future structure:
+Future structure (stubs that are scaffolded but not yet implemented):
 
 ```text
 src/
@@ -136,12 +145,6 @@ src/
   daemon/
     daemon.ts
     ipc.ts
-
-  doctor/
-    doctor.ts
-
-  log/
-    logger.ts
 
   tunnel/
     client.ts
@@ -370,12 +373,20 @@ With route:
 node dist/index.js start myapp --port 3000 --route /api=8080
 ```
 
+With a `/etc/hosts` entry:
+
+```bash
+node dist/index.js start myapp --port 3000 --hosts
+```
+
 Behavior:
 
 - Normalizes the domain
 - Adds `.test` if no TLD is provided
-- Validates the port
-- Saves config to `~/.locallane/config.yaml`
+- Validates the port and any route mappings
+- Saves config to `~/.locallane/config.yaml` (including routes)
+- With `--hosts`, adds `127.0.0.1 myapp.test # local-lane` to `/etc/hosts`
+  (may prompt for `sudo`)
 
 ---
 
@@ -405,9 +416,16 @@ Example:
 node dist/index.js stop myapp
 ```
 
+With `--hosts` to also remove the `/etc/hosts` entry:
+
+```bash
+node dist/index.js stop myapp --hosts
+```
+
 Behavior:
 
 - Removes the domain from config
+- With `--hosts`, removes the matching `/etc/hosts` entry (may prompt for `sudo`)
 
 ---
 
@@ -425,6 +443,59 @@ Behavior:
 - Matches route prefix if available
 - Forwards to the correct local upstream
 - Returns clean `502` if upstream is unreachable
+- Logs each request to the console and `~/.locallane/access.log`
+
+---
+
+### `doctor`
+
+```bash
+node dist/index.js doctor
+```
+
+Behavior:
+
+- Checks the base directory `~/.locallane`
+- Checks that the config file exists and parses
+- Checks whether the proxy port `10080` is free to bind
+- Reports reachability for every configured domain and route
+
+Example output:
+
+```text
+✓ Base directory: /home/you/.locallane
+✓ Config file: /home/you/.locallane/config.yaml
+✓ Proxy port: :10080 is free
+✓ Upstream myapp.test: localhost:3000 reachable
+! Upstream myapp.test/api: localhost:8080 unreachable
+```
+
+---
+
+## Access Logs
+
+When the proxy is running, every request is written to the console and appended
+to:
+
+```text
+~/.locallane/access.log
+```
+
+Each line looks like:
+
+```text
+2026-06-29T05:31:30.972Z myapp.test GET /api/users -> :8080 200
+```
+
+Verbosity is controlled by an optional `logMode` field in `config.yaml`:
+
+```yaml
+logMode: full      # full (default) | minimal (non-2xx only) | off
+domains:
+  - name: myapp.test
+    port: 3000
+    routes: []
+```
 
 ---
 
@@ -432,7 +503,6 @@ Behavior:
 
 LocalLane does not yet:
 
-- Automatically update `/etc/hosts`
 - Support direct browser access through `myapp.test`
 - Support HTTPS
 - Generate certificates
@@ -448,29 +518,28 @@ curl -H "Host: myapp.test" http://localhost:10080/
 
 ---
 
-## Planned Hosts Integration
+## Hosts Integration
 
-Future command:
+Implemented via the explicit `--hosts` flag:
 
 ```bash
 node dist/index.js start myapp --port 3000 --hosts
 ```
 
-Expected behavior:
+This adds the following line to `/etc/hosts`:
 
 ```text
-127.0.0.1 myapp.test # locallane
+127.0.0.1 myapp.test # local-lane
 ```
 
-will be added to:
+Removing it again:
 
-```text
-/etc/hosts
+```bash
+node dist/index.js stop myapp --hosts
 ```
 
-This will be explicit because editing `/etc/hosts` requires `sudo`.
-
-LocalLane should not modify system files unless the user asks for it.
+Editing `/etc/hosts` requires `sudo`, so LocalLane only touches it when you pass
+`--hosts` — it never modifies system files implicitly.
 
 ---
 
