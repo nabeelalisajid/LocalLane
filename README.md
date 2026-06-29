@@ -57,6 +57,8 @@ LocalLane currently supports:
 - Explicit `/etc/hosts` integration with `--hosts`
 - `doctor` command for diagnostics
 - Access logs (`~/.locallane/access.log`)
+- HTTPS proxy with a local root CA and per-domain certificates (SNI)
+- HTTP to HTTPS redirect
 
 ---
 
@@ -64,11 +66,6 @@ LocalLane currently supports:
 
 Planned features:
 
-- HTTPS support
-- Local root CA generation
-- Per-domain TLS certificates
-- SNI-based certificate loading
-- HTTP to HTTPS redirect
 - Port forwarding from `80 -> 10080` and `443 -> 10443`
 - Background daemon
 - Unix socket IPC
@@ -89,14 +86,14 @@ commander
 yaml
 fs-extra
 http-proxy
+execa          # sudo tee for /etc/hosts
+node-forge     # root CA + per-domain certificates
 ```
 
 Future additions may include:
 
 ```text
-execa
-node-forge
-ws
+ws             # public WebSocket tunnel
 ```
 
 ---
@@ -113,6 +110,7 @@ src/
     list.ts
     proxy.ts
     doctor.ts
+    root.ts      # `ca` command
 
   config/
     path.ts
@@ -123,6 +121,10 @@ src/
     server.ts
     router.ts
     health.ts
+
+  cert/
+    ca.ts        # local root CA
+    leaf.ts      # per-domain certificates
 
   doctor/
     doctor.ts
@@ -138,10 +140,6 @@ Future structure (stubs that are scaffolded but not yet implemented):
 
 ```text
 src/
-  cert/
-    ca.ts
-    leaf.ts
-
   daemon/
     daemon.ts
     ipc.ts
@@ -432,7 +430,9 @@ Behavior:
 ### `proxy`
 
 ```bash
-node dist/index.js proxy
+node dist/index.js proxy            # HTTP only on 10080
+node dist/index.js proxy --https    # HTTP on 10080 + HTTPS on 10443
+node dist/index.js proxy --redirect # HTTP 308-redirects to HTTPS (implies --https)
 ```
 
 Behavior:
@@ -444,6 +444,25 @@ Behavior:
 - Forwards to the correct local upstream
 - Returns clean `502` if upstream is unreachable
 - Logs each request to the console and `~/.locallane/access.log`
+- With `--https`, also serves HTTPS on `10443`, presenting a per-domain
+  certificate loaded via SNI
+- With `--redirect`, the HTTP port returns `308` redirects to the HTTPS port
+  instead of proxying plain HTTP
+
+---
+
+### `ca`
+
+```bash
+node dist/index.js ca
+```
+
+Behavior:
+
+- Generates the local root CA (if missing) under `~/.locallane/ca`
+- Prints platform-specific instructions for trusting it
+
+See [HTTPS](#https) below for the full workflow.
 
 ---
 
@@ -499,18 +518,59 @@ domains:
 
 ---
 
+## HTTPS
+
+LocalLane can serve your local domains over HTTPS using a local root CA and
+per-domain certificates loaded via SNI.
+
+**1. Generate and trust the root CA (once):**
+
+```bash
+node dist/index.js ca
+```
+
+Follow the printed instructions to add `~/.locallane/ca/rootCA.crt` to your
+system / browser trust store. The CA is only used to sign local development
+certificates.
+
+**2. Register a domain and start the HTTPS proxy:**
+
+```bash
+node dist/index.js start myapp --port 3000 --hosts
+node dist/index.js proxy --https
+```
+
+A leaf certificate for `myapp.test` is generated and cached under
+`~/.locallane/certs` the first time it is requested.
+
+**3. Test it:**
+
+```bash
+curl --cacert ~/.locallane/ca/rootCA.crt \
+  --resolve myapp.test:10443:127.0.0.1 \
+  https://myapp.test:10443/
+```
+
+Or, once the CA is trusted and `--hosts` has added the entry, open
+`https://myapp.test:10443` directly. To make plain HTTP bounce to HTTPS, run the
+proxy with `--redirect`.
+
+> Note: ports `10443`/`10080` are used because binding `443`/`80` requires
+> elevated privileges. Forwarding `443 -> 10443` and `80 -> 10080` is on the
+> roadmap.
+
+---
+
 ## Current Limitations
 
 LocalLane does not yet:
 
-- Support direct browser access through `myapp.test`
-- Support HTTPS
-- Generate certificates
+- Bind directly to ports `80`/`443` (uses `10080`/`10443`)
 - Run as a background daemon
 - Reload config through IPC
 - Expose local apps publicly
 
-For now, use `curl` with a `Host` header:
+For plain HTTP without a hosts entry, use `curl` with a `Host` header:
 
 ```bash
 curl -H "Host: myapp.test" http://localhost:10080/
@@ -543,26 +603,30 @@ Editing `/etc/hosts` requires `sudo`, so LocalLane only touches it when you pass
 
 ---
 
-## Planned HTTPS Support
+## HTTPS Architecture
 
-Future HTTPS flow:
+Implemented HTTPS flow:
 
 ```text
 Browser
   -> https://myapp.test
   -> 127.0.0.1
-  -> LocalLane HTTPS proxy
+  -> LocalLane HTTPS proxy (:10443, per-domain cert via SNI)
   -> localhost:3000
 ```
 
-Required work:
+Implemented:
 
-- Generate local root CA
-- Trust root CA
-- Generate leaf certificate for each local domain
-- Load certificates using SNI
-- Run HTTPS proxy on port `10443`
-- Redirect HTTP to HTTPS
+- Generate local root CA (`ca` command, `src/cert/ca.ts`)
+- Generate a leaf certificate per local domain (`src/cert/leaf.ts`)
+- Load certificates using SNI (`src/proxy/server.ts`)
+- Run HTTPS proxy on port `10443` (`proxy --https`)
+- Redirect HTTP to HTTPS (`proxy --redirect`)
+
+Remaining (manual / roadmap):
+
+- Trusting the root CA is a one-time manual step (printed by `ca`)
+- Binding `443`/`80` directly via port forwarding
 
 ---
 

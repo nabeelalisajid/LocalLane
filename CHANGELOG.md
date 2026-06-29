@@ -4,6 +4,26 @@ All notable changes to LocalLane are documented in this file.
 
 ## [Unreleased]
 
+### Added — HTTPS support
+
+- **Local root CA** (`src/cert/ca.ts`): generates and caches a self-signed root
+  CA under `~/.locallane/ca` using node-forge. Used to sign per-domain certs.
+- **Per-domain leaf certificates** (`src/cert/leaf.ts`): generates and caches a
+  certificate per domain (with a DNS SAN), signed by the root CA, under
+  `~/.locallane/certs`.
+- **HTTPS reverse proxy on port 10443** (`src/proxy/server.ts`): loads the
+  matching leaf certificate per connection via SNI and reuses the same routing
+  and access-logging path as the HTTP proxy.
+- **`proxy --https`**: runs the HTTPS proxy alongside the HTTP proxy.
+- **`proxy --redirect`**: serves 308 redirects from HTTP (10080) to HTTPS
+  (10443) instead of proxying plain HTTP (implies `--https`).
+- **`ca` command** (`src/cli/root.ts`): generates the root CA on demand and
+  prints platform-specific instructions for trusting it.
+
+Verified end-to-end: `openssl s_client` reports `issuer=CN = LocalLane Local CA`
+with `Verify return code: 0 (ok)`, and requests proxy to the correct upstream
+over TLS (including path routes).
+
 ### Fixed
 
 - **Path-based routing forwarded to the wrong upstream.** The proxy computed the
