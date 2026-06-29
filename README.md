@@ -59,17 +59,18 @@ LocalLane currently supports:
 - Access logs (`~/.locallane/access.log`)
 - HTTPS proxy with a local root CA and per-domain certificates (SNI)
 - HTTP to HTTPS redirect
+- Background daemon with a Unix-socket IPC control channel
+- Port forwarding from `80`/`443` to `10080`/`10443`
+- Public WebSocket tunnel (`share` + `tunnel-server`)
 
 ---
 
 ## Roadmap
 
-Planned features:
+All core features are implemented (HTTP/HTTPS proxy, routing, hosts integration,
+diagnostics, access logs, background daemon, IPC, port forwarding, and the public
+tunnel). Remaining:
 
-- Port forwarding from `80 -> 10080` and `443 -> 10443`
-- Background daemon
-- Unix socket IPC
-- Public WebSocket tunnel
 - Go implementation
 
 ---
@@ -140,16 +141,15 @@ src/
   system/
     hosts.ts
     port-forward.ts   # 80/443 -> 10080/10443
-```
 
-Future structure (stubs that are scaffolded but not yet implemented):
-
-```text
-src/
   tunnel/
-    client.ts
-    server.ts
+    protocol.ts       # shared message protocol
+    server.ts         # public tunnel server
+    client.ts         # local tunnel client
 ```
+
+All roadmap features through the public tunnel are now implemented. The only
+remaining planned item is the Go rewrite (see below).
 
 ---
 
@@ -518,6 +518,28 @@ Behavior:
 
 ---
 
+### `share` / `tunnel-server`
+
+Expose a local app to the public internet through a tunnel server (see
+[Public Tunnel](#public-tunnel)).
+
+Run the public server (on a machine with a public address):
+
+```bash
+node dist/index.js tunnel-server --port 9000 --host example.com
+```
+
+Expose a local port through it:
+
+```bash
+node dist/index.js share --port 3000 --server ws://example.com:9000/__tunnel
+```
+
+`share` prints a public URL like `http://ab12cd34.example.com:9000` that maps
+back to `localhost:3000`.
+
+---
+
 ### `doctor`
 
 ```bash
@@ -617,7 +639,8 @@ proxy with `--redirect`.
 
 LocalLane does not yet:
 
-- Expose local apps publicly
+- Provide a hosted public tunnel server (you run your own — see
+  [Public Tunnel](#public-tunnel))
 
 For plain HTTP without a hosts entry, use `curl` with a `Host` header:
 
@@ -728,25 +751,46 @@ needed to drop cached TLS certificates.
 
 ---
 
-## Planned Public Tunnel
+<a id="public-tunnel"></a>
 
-Future command:
+## Public Tunnel
 
-```bash
-locallane share --port 3000
-```
+LocalLane can expose a local app to the public internet through a self-hosted
+tunnel server.
 
-Expected architecture:
+Architecture:
 
 ```text
 Public user
-  -> remote LocalLane tunnel server
+  -> LocalLane tunnel server   (tunnel-server, public host)
   -> WebSocket connection
-  -> local LocalLane client
+  -> LocalLane tunnel client   (share, your machine)
   -> localhost:3000
 ```
 
-This will be built after the local proxy, HTTPS, daemon, and IPC features are stable.
+1. On a machine with a public address, run the server:
+
+   ```bash
+   node dist/index.js tunnel-server --port 9000 --host example.com
+   ```
+
+2. On your machine, expose a local port:
+
+   ```bash
+   node dist/index.js share --port 3000 --server ws://example.com:9000/__tunnel
+   ```
+
+   `share` prints a public URL such as `http://ab12cd34.example.com:9000`.
+
+Each client is assigned a random subdomain; the server routes a public request
+to the matching client by the first label of the `Host` header, forwards it over
+the WebSocket, and writes back the client's response. Request and response
+bodies are binary-safe, and requests that receive no reply time out with a
+`504`.
+
+> For wildcard-subdomain routing in a browser you need `*.example.com` pointing
+> at the server. For local testing, a wildcard DNS host like `lvh.me`
+> (`*.lvh.me -> 127.0.0.1`) or a `Host` header works.
 
 ---
 

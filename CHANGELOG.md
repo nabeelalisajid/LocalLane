@@ -4,6 +4,21 @@ All notable changes to LocalLane are documented in this file.
 
 ## [Unreleased]
 
+### Added — Public WebSocket tunnel
+
+- **Tunnel server** (`src/tunnel/server.ts`) and **client** (`src/tunnel/client.ts`)
+  with a shared message protocol (`src/tunnel/protocol.ts`), exposing local apps
+  publicly over a single WebSocket:
+  - `tunnel-server [--port 9000] [--host lvh.me]` runs the public server. Each
+    connected client is assigned a random subdomain; public requests are routed
+    to the client matching the first Host label and forwarded over the socket.
+  - `share --port <port> [--server ws://...]` connects a local client, prints
+    its public URL, and replays forwarded requests against the local app.
+  - Request/response bodies are base64-framed (binary-safe); hop-by-hop response
+    headers are stripped; requests that get no reply time out with a 504.
+- Verified end-to-end: GET (with query string), POST (with body), and response
+  headers all round-trip through the tunnel; unknown subdomains return 404.
+
 ### Added — Port forwarding
 
 - **TCP port forwarder** (`src/system/port-forward.ts`, `src/cli/forward.ts`):

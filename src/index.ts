@@ -9,6 +9,7 @@ import { doctorCommand } from "./cli/doctor";
 import { caCommand } from "./cli/root";
 import { daemonCommand } from "./cli/daemon";
 import { forwardCommand } from "./cli/forward";
+import { shareCommand, tunnelServerCommand } from "./cli/tunnel";
 
 const program = new Command();
 
@@ -25,5 +26,7 @@ program.addCommand(doctorCommand);
 program.addCommand(caCommand);
 program.addCommand(daemonCommand);
 program.addCommand(forwardCommand);
+program.addCommand(shareCommand);
+program.addCommand(tunnelServerCommand);
 
 program.parse();
