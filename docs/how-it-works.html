@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LocalLane — How it works (animated)</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --ink:#e6edf3;
+    --muted:#8b949e; --line:#30363d;
+    --blue:#58a6ff; --green:#3fb950; --purple:#bc8cff; --orange:#ffa657;
+    --pink:#f778ba; --yellow:#e3b341; --cyan:#56d4dd;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  header{
+    padding:48px 20px 24px; text-align:center;
+    background:radial-gradient(900px 300px at 50% -40%, #1f6feb33, transparent);
+    border-bottom:1px solid var(--line);
+  }
+  header h1{margin:0 0 6px; font-size:34px; letter-spacing:.3px}
+  header h1 .tag{color:var(--blue)}
+  header p{margin:6px auto 0; max-width:680px; color:var(--muted)}
+  nav{
+    position:sticky; top:0; z-index:5; display:flex; flex-wrap:wrap; gap:8px;
+    justify-content:center; padding:12px; background:#0d1117e6;
+    backdrop-filter:blur(8px); border-bottom:1px solid var(--line);
+  }
+  nav a{
+    color:var(--ink); text-decoration:none; font-size:13px; padding:6px 12px;
+    border:1px solid var(--line); border-radius:999px; background:var(--panel);
+  }
+  nav a:hover{border-color:var(--blue); color:var(--blue)}
+  main{max-width:1000px; margin:0 auto; padding:24px 16px 80px}
+  section{
+    background:var(--panel); border:1px solid var(--line); border-radius:14px;
+    padding:22px; margin:26px 0; box-shadow:0 1px 0 #0006;
+  }
+  section h2{margin:0 0 4px; font-size:22px; display:flex; align-items:center; gap:10px}
+  .pill{font-size:12px; color:#0d1117; padding:2px 8px; border-radius:999px; font-weight:700}
+  section .lead{color:var(--muted); margin:2px 0 14px}
+  .stage{width:100%; background:var(--panel2); border:1px solid var(--line); border-radius:12px}
+  .legend{display:flex; flex-wrap:wrap; gap:14px; margin-top:12px; font-size:13px; color:var(--muted)}
+  .legend i{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:6px;vertical-align:-1px}
+  .note{margin-top:12px; font-size:14px; color:var(--muted); border-left:3px solid var(--line); padding-left:12px}
+  .note b{color:var(--ink)}
+  /* SVG primitives */
+  .box{fill:#0f1620; stroke:var(--line); stroke-width:1.5; rx:10}
+  .box.proxy{stroke:var(--blue)}
+  .box.app{stroke:var(--green)}
+  .box.bad{stroke:#f85149}
+  .title{fill:var(--ink); font:600 14px ui-monospace,monospace}
+  .sub{fill:var(--muted); font:11px ui-monospace,monospace}
+  .wire{fill:none; stroke:var(--line); stroke-width:2.5; stroke-dasharray:4 6}
+  .wire.flow{stroke:#2b3340}
+  .lbl{fill:var(--muted); font:11px ui-monospace,monospace}
+  .pkt-text{font:700 11px ui-monospace,monospace}
+  footer{text-align:center; color:var(--muted); font-size:13px; padding:30px}
+  .key{color:var(--blue)}
+</style>
+</head>
+<body>
+<header>
+  <h1>How <span class="tag">LocalLane</span> works</h1>
+  <p>Animated walkthrough of the proxy, routing, HTTPS, the daemon, port forwarding, and the public tunnel. Everything below loops on its own — just watch the dots move.</p>
+</header>
+
+<nav>
+  <a href="#routing">1 · Host routing</a>
+  <a href="#paths">2 · Path routes</a>
+  <a href="#https">3 · HTTPS &amp; SNI</a>
+  <a href="#daemon">4 · Daemon &amp; IPC</a>
+  <a href="#forward">5 · Port forward</a>
+  <a href="#tunnel">6 · Public tunnel</a>
+</nav>
+
+<main>
+
+<!-- ============ 1. HOST ROUTING ============ -->
+<section id="routing">
+  <h2>1 · Host-based routing <span class="pill" style="background:var(--blue)">core</span></h2>
+  <p class="lead">The proxy reads the <code>Host</code> header of each request and forwards it to the matching app. Two domains, one proxy.</p>
+  <svg class="stage" viewBox="0 0 940 360" role="img" aria-label="Host routing animation">
+    <!-- boxes -->
+    <rect class="box" x="30"  y="150" width="150" height="70" rx="10"/>
+    <text class="title" x="105" y="180" text-anchor="middle">Browser</text>
+    <text class="sub"   x="105" y="200" text-anchor="middle">curl / app</text>
+
+    <rect class="box proxy" x="395" y="140" width="150" height="90" rx="10"/>
+    <text class="title" x="470" y="172" text-anchor="middle">Proxy</text>
+    <text class="sub"   x="470" y="192" text-anchor="middle">:10080</text>
+    <text class="sub"   x="470" y="210" text-anchor="middle">reads Host</text>
+
+    <rect class="box app" x="760" y="60"  width="150" height="70" rx="10"/>
+    <text class="title" x="835" y="90"  text-anchor="middle">app A</text>
+    <text class="sub"   x="835" y="110" text-anchor="middle">:3000</text>
+
+    <rect class="box app" x="760" y="240" width="150" height="70" rx="10"/>
+    <text class="title" x="835" y="270" text-anchor="middle">app B</text>
+    <text class="sub"   x="835" y="290" text-anchor="middle">:4000</text>
+
+    <!-- wires -->
+    <path id="r-in"  class="wire" d="M180,185 H395"/>
+    <path id="r-a"   class="wire" d="M545,170 C640,150 680,110 760,95"/>
+    <path id="r-b"   class="wire" d="M545,200 C640,220 680,260 760,275"/>
+    <text class="lbl" x="300" y="176" text-anchor="middle">request</text>
+    <text class="lbl" x="660" y="120">myapp.test → :3000</text>
+    <text class="lbl" x="660" y="252">blog.test → :4000</text>
+
+    <!-- packet to app A -->
+    <g>
+      <circle r="7" fill="var(--blue)"/>
+      <text class="pkt-text" fill="var(--blue)" x="10" y="-8">Host: myapp.test</text>
+      <animateMotion dur="4s" repeatCount="indefinite" keyTimes="0;0.5;1" keyPoints="0;1;1" calcMode="linear">
+        <mpath href="#r-in"/>
+      </animateMotion>
+    </g>
+    <g>
+      <circle r="7" fill="var(--blue)"/>
+      <animateMotion dur="4s" repeatCount="indefinite" keyTimes="0;0.5;1" keyPoints="0;0;1" calcMode="linear">
+        <mpath href="#r-a"/>
+      </animateMotion>
+    </g>
+
+    <!-- packet to app B (offset start) -->
+    <g>
+      <circle r="7" fill="var(--purple)"/>
+      <text class="pkt-text" fill="var(--purple)" x="10" y="16">Host: blog.test</text>
+      <animateMotion dur="4s" begin="2s" repeatCount="indefinite" keyTimes="0;0.5;1" keyPoints="0;1;1" calcMode="linear">
+        <mpath href="#r-in"/>
+      </animateMotion>
+    </g>
+    <g>
+      <circle r="7" fill="var(--purple)"/>
+      <animateMotion dur="4s" begin="2s" repeatCount="indefinite" keyTimes="0;0.5;1" keyPoints="0;0;1" calcMode="linear">
+        <mpath href="#r-b"/>
+      </animateMotion>
+    </g>
+  </svg>
+  <div class="legend">
+    <span><i style="background:var(--blue)"></i>request for myapp.test</span>
+    <span><i style="background:var(--purple)"></i>request for blog.test</span>
+  </div>
+  <p class="note"><b>In code:</b> <code>server.ts</code> does <code>host = req.headers.host</code>, finds the domain in <code>config.yaml</code>, and forwards to <code>127.0.0.1:&lt;port&gt;</code>. If no domain matches → <code>404</code>. If the app is down → clean <code>502</code>.</p>
+</section>
+
+<!-- ============ 2. PATH ROUTES ============ -->
+<section id="paths">
+  <h2>2 · Path routes &amp; prefix stripping <span class="pill" style="background:var(--green)">routing</span></h2>
+  <p class="lead">Within one domain, paths can fan out to different apps. The matched prefix is <em>stripped</em> so the upstream sees its own path.</p>
+  <svg class="stage" viewBox="0 0 940 360" role="img" aria-label="Path routing animation">
+    <rect class="box" x="30" y="150" width="150" height="70" rx="10"/>
+    <text class="title" x="105" y="180" text-anchor="middle">Browser</text>
+    <text class="sub" x="105" y="200" text-anchor="middle">myapp.test</text>
+
+    <rect class="box proxy" x="380" y="140" width="170" height="90" rx="10"/>
+    <text class="title" x="465" y="170" text-anchor="middle">matchRoute()</text>
+    <text class="sub" x="465" y="190" text-anchor="middle">longest prefix</text>
+    <text class="sub" x="465" y="208" text-anchor="middle">+ strip prefix</text>
+
+    <rect class="box app" x="770" y="60" width="150" height="70" rx="10"/>
+    <text class="title" x="845" y="90" text-anchor="middle">web</text>
+    <text class="sub" x="845" y="110" text-anchor="middle">:3000</text>
+
+    <rect class="box app" x="770" y="240" width="150" height="70" rx="10"/>
+    <text class="title" x="845" y="270" text-anchor="middle">api</text>
+    <text class="sub" x="845" y="290" text-anchor="middle">:8080</text>
+
+    <path id="p-in" class="wire" d="M180,185 H380"/>
+    <path id="p-web" class="wire" d="M550,170 C650,150 690,110 770,95"/>
+    <path id="p-api" class="wire" d="M550,200 C650,220 690,260 770,275"/>
+
+    <!-- "/about" -> web :3000, path unchanged -->
+    <g>
+      <circle r="7" fill="var(--green)"/>
+      <text class="pkt-text" fill="var(--green)" x="10" y="-8">/about</text>
+      <animateMotion dur="4.4s" repeatCount="indefinite" keyTimes="0;0.5;1" keyPoints="0;1;1" calcMode="linear"><mpath href="#p-in"/></animateMotion>
+    </g>
+    <g>
+      <circle r="7" fill="var(--green)"/>
+      <text class="pkt-text" fill="var(--green)" x="10" y="-8">/about</text>
+      <animateMotion dur="4.4s" repeatCount="indefinite" keyTimes="0;0.5;1" keyPoints="0;0;1" calcMode="linear"><mpath href="#p-web"/></animateMotion>
+    </g>
+
+    <!-- "/api/users" -> api :8080, becomes "/users" -->
+    <g>
+      <circle r="7" fill="var(--orange)"/>
+      <text class="pkt-text" fill="var(--orange)" x="10" y="16">/api/users</text>
+      <animateMotion dur="4.4s" begin="2.2s" repeatCount="indefinite" keyTimes="0;0.5;1" keyPoints="0;1;1" calcMode="linear"><mpath href="#p-in"/></animateMotion>
+    </g>
+    <g>
+      <circle r="7" fill="var(--orange)"/>
+      <text class="pkt-text" fill="var(--orange)" x="10" y="16">/users</text>
+      <animateMotion dur="4.4s" begin="2.2s" repeatCount="indefinite" keyTimes="0;0.5;1" keyPoints="0;0;1" calcMode="linear"><mpath href="#p-api"/></animateMotion>
+    </g>
+  </svg>
+  <div class="legend">
+    <span><i style="background:var(--green)"></i><code>/about</code> → :3000 (unchanged)</span>
+    <span><i style="background:var(--orange)"></i><code>/api/users</code> → :8080 as <code>/users</code> (prefix stripped)</span>
+  </div>
+  <p class="note"><b>The bug I fixed:</b> the old code matched the route a <i>second</i> time after stripping, so <code>/api/users</code> became <code>/users</code>, matched nothing, and went to <code>:3000</code>. Now it matches once and reuses that decision.</p>
+</section>
+
+<!-- ============ 3. HTTPS / SNI ============ -->
+<section id="https">
+  <h2>3 · HTTPS &amp; SNI <span class="pill" style="background:var(--purple)">tls</span></h2>
+  <p class="lead">A local root CA signs a certificate per domain. During the TLS handshake, the browser names the host (SNI) and the proxy serves the matching cert.</p>
+  <svg class="stage" viewBox="0 0 940 380" role="img" aria-label="HTTPS and SNI animation">
+    <rect class="box" x="30" y="160" width="160" height="80" rx="10"/>
+    <text class="title" x="110" y="192" text-anchor="middle">Browser</text>
+    <text class="sub" x="110" y="212" text-anchor="middle">trusts root CA</text>
+
+    <rect class="box proxy" x="400" y="150" width="170" height="100" rx="10"/>
+    <text class="title" x="485" y="182" text-anchor="middle">HTTPS proxy</text>
+    <text class="sub" x="485" y="202" text-anchor="middle">:10443 · SNI</text>
+    <text class="sub" x="485" y="220" text-anchor="middle">picks leaf cert</text>
+
+    <!-- cert store -->
+    <rect class="box" x="400" y="20" width="170" height="80" rx="10" style="stroke:var(--yellow)"/>
+    <text class="title" x="485" y="48" text-anchor="middle">~/.locallane</text>
+    <text class="sub" x="485" y="68" text-anchor="middle">root CA + leaf certs</text>
+    <text class="sub" x="485" y="86" text-anchor="middle">cert per domain</text>
+    <path class="wire" d="M485,100 V150"/>
+    <text class="lbl" x="500" y="128">sign / cache</text>
+
+    <rect class="box app" x="780" y="160" width="150" height="80" rx="10"/>
+    <text class="title" x="855" y="192" text-anchor="middle">app</text>
+    <text class="sub" x="855" y="212" text-anchor="middle">:3000 (plain)</text>
+
+    <path id="h-hello" class="wire" d="M190,185 H400"/>
+    <path id="h-cert"  class="wire" d="M400,215 H190"/>
+    <path id="h-up"    class="wire" d="M570,210 H780"/>
+
+    <!-- ClientHello with servername -->
+    <g>
+      <rect x="-58" y="-12" width="116" height="22" rx="6" fill="#1b2942" stroke="var(--blue)"/>
+      <text class="pkt-text" fill="var(--blue)" x="0" y="3" text-anchor="middle">ClientHello SNI</text>
+      <animateMotion dur="5s" repeatCount="indefinite" keyTimes="0;0.25;1" keyPoints="0;1;1" calcMode="linear"><mpath href="#h-hello"/></animateMotion>
+    </g>
+    <!-- cert returned -->
+    <g>
+      <rect x="-50" y="-12" width="100" height="22" rx="6" fill="#23311b" stroke="var(--green)"/>
+      <text class="pkt-text" fill="var(--green)" x="0" y="3" text-anchor="middle">leaf cert 🔒</text>
+      <animateMotion dur="5s" begin="1.25s" repeatCount="indefinite" keyTimes="0;0.25;1" keyPoints="0;1;1" calcMode="linear"><mpath href="#h-cert"/></animateMotion>
+    </g>
+    <!-- encrypted request flows to app (decrypted) -->
+    <g>
+      <circle r="7" fill="var(--cyan)"/>
+      <text class="pkt-text" fill="var(--cyan)" x="8" y="-8">decrypted req</text>
+      <animateMotion dur="5s" begin="3s" repeatCount="indefinite" keyTimes="0;0.6;1" keyPoints="0;0;1" calcMode="linear"><mpath href="#h-up"/></animateMotion>
+    </g>
+  </svg>
+  <div class="legend">
+    <span><i style="background:var(--blue)"></i>① browser says “I want myapp.test” (SNI)</span>
+    <span><i style="background:var(--green)"></i>② proxy serves that domain’s cert</span>
+    <span><i style="background:var(--cyan)"></i>③ TLS terminated → same routing as HTTP</span>
+  </div>
+  <p class="note"><b>Why it’s trusted:</b> you trust the <b>root CA</b> once (<code>ca</code> command). Every per-domain <b>leaf</b> cert is signed by it, so the browser trusts them all. Verified with <code>openssl</code>: <span class="mono">issuer=LocalLane Local CA, verify 0 (ok)</span>.</p>
+</section>
+
+<!-- ============ 4. DAEMON / IPC ============ -->
+<section id="daemon">
+  <h2>4 · Daemon &amp; IPC <span class="pill" style="background:var(--orange)">process</span></h2>
+  <p class="lead">The daemon runs the proxy detached from your terminal and tracks it with a PID file. A Unix socket is a private control channel to talk to it.</p>
+  <svg class="stage" viewBox="0 0 940 360" role="img" aria-label="Daemon and IPC animation">
+    <rect class="box" x="30" y="150" width="160" height="80" rx="10"/>
+    <text class="title" x="110" y="182" text-anchor="middle">CLI</text>
+    <text class="sub" x="110" y="202" text-anchor="middle">daemon start/stop</text>
+
+    <rect class="box proxy" x="390" y="60" width="190" height="90" rx="10"/>
+    <text class="title" x="485" y="92" text-anchor="middle">proxy (detached)</text>
+    <text class="sub" x="485" y="112" text-anchor="middle">keeps running</text>
+    <text class="sub" x="485" y="130" text-anchor="middle">after CLI exits</text>
+
+    <rect class="box" x="390" y="250" width="190" height="70" rx="10" style="stroke:var(--yellow)"/>
+    <text class="title" x="485" y="280" text-anchor="middle">~/.locallane</text>
+    <text class="sub" x="485" y="300" text-anchor="middle">.pid · .sock · .log</text>
+
+    <!-- spawn arrow -->
+    <path id="d-spawn" class="wire" d="M190,170 C300,140 320,120 390,105"/>
+    <text class="lbl" x="250" y="120">spawn + write PID</text>
+    <!-- ipc socket (two-way) -->
+    <path id="d-ipc1" class="wire" d="M190,200 C300,250 320,275 390,283"/>
+    <path id="d-ipc2" class="wire" d="M390,300 C320,300 300,235 190,215"/>
+    <text class="lbl" x="250" y="262">ping / status / reload / shutdown</text>
+
+    <g>
+      <circle r="7" fill="var(--orange)"/>
+      <animateMotion dur="3.4s" repeatCount="indefinite"><mpath href="#d-spawn"/></animateMotion>
+    </g>
+    <g>
+      <circle r="6" fill="var(--cyan)"/>
+      <text class="pkt-text" fill="var(--cyan)" x="8" y="-8">cmd</text>
+      <animateMotion dur="3.4s" begin="1.7s" repeatCount="indefinite"><mpath href="#d-ipc1"/></animateMotion>
+    </g>
+    <g>
+      <circle r="6" fill="var(--green)"/>
+      <text class="pkt-text" fill="var(--green)" x="8" y="14">reply</text>
+      <animateMotion dur="3.4s" begin="0.4s" repeatCount="indefinite"><mpath href="#d-ipc2"/></animateMotion>
+    </g>
+  </svg>
+  <div class="legend">
+    <span><i style="background:var(--orange)"></i>start → spawn detached, save PID</span>
+    <span><i style="background:var(--cyan)"></i>command over Unix socket</span>
+    <span><i style="background:var(--green)"></i>reply (uptime, domains…)</span>
+  </div>
+  <p class="note"><b>Two files do the work:</b> the <code>.pid</code> file lets <code>status</code>/<code>stop</code> find the process; the <code>.sock</code> file is a local-only channel so <code>daemon status</code> can ask the live process for its uptime and domains, and <code>stop</code> can shut it down gracefully.</p>
+</section>
+
+<!-- ============ 5. PORT FORWARD ============ -->
+<section id="forward">
+  <h2>5 · Port forwarding <span class="pill" style="background:var(--pink)">sockets</span></h2>
+  <p class="lead">Ports 80/443 need root, so the proxy uses 10080/10443. <code>forward</code> is a raw byte pipe that bridges them — so you can drop the port suffix.</p>
+  <svg class="stage" viewBox="0 0 940 300" role="img" aria-label="Port forwarding animation">
+    <rect class="box" x="30" y="115" width="150" height="70" rx="10"/>
+    <text class="title" x="105" y="145" text-anchor="middle">Browser</text>
+    <text class="sub" x="105" y="165" text-anchor="middle">:80 / :443</text>
+
+    <rect class="box" x="380" y="105" width="170" height="90" rx="10" style="stroke:var(--pink)"/>
+    <text class="title" x="465" y="137" text-anchor="middle">forward</text>
+    <text class="sub" x="465" y="157" text-anchor="middle">TCP byte pipe</text>
+    <text class="sub" x="465" y="175" text-anchor="middle">(needs sudo)</text>
+
+    <rect class="box proxy" x="760" y="115" width="150" height="70" rx="10"/>
+    <text class="title" x="835" y="145" text-anchor="middle">proxy</text>
+    <text class="sub" x="835" y="165" text-anchor="middle">:10080 / :10443</text>
+
+    <path id="f-in"  class="wire" d="M180,150 H380"/>
+    <path id="f-out" class="wire" d="M550,150 H760"/>
+
+    <g>
+      <circle r="7" fill="var(--pink)"/>
+      <text class="pkt-text" fill="var(--pink)" x="8" y="-8">:443</text>
+      <animateMotion dur="3.2s" repeatCount="indefinite"><mpath href="#f-in"/></animateMotion>
+    </g>
+    <g>
+      <circle r="7" fill="var(--pink)"/>
+      <text class="pkt-text" fill="var(--pink)" x="8" y="-8">:10443</text>
+      <animateMotion dur="3.2s" begin="1.6s" repeatCount="indefinite"><mpath href="#f-out"/></animateMotion>
+    </g>
+  </svg>
+  <div class="legend"><span><i style="background:var(--pink)"></i>same bytes, just moved from a privileged port to an open one</span></div>
+  <p class="note"><b>Why it works for HTTPS too:</b> the forwarder copies raw bytes and never parses HTTP, so encrypted TLS passes straight through — it’s decrypted later by the HTTPS proxy.</p>
+</section>
+
+<!-- ============ 6. PUBLIC TUNNEL ============ -->
+<section id="tunnel">
+  <h2>6 · Public tunnel <span class="pill" style="background:var(--cyan)">websocket</span></h2>
+  <p class="lead">Expose <code>localhost</code> to the internet. Your machine dials <em>out</em> to a public server over a WebSocket — no inbound firewall hole needed (the ngrok trick).</p>
+  <svg class="stage" viewBox="0 0 940 380" role="img" aria-label="Public tunnel animation">
+    <rect class="box" x="30" y="160" width="150" height="80" rx="10"/>
+    <text class="title" x="105" y="192" text-anchor="middle">Public</text>
+    <text class="sub" x="105" y="212" text-anchor="middle">visitor</text>
+
+    <rect class="box proxy" x="330" y="150" width="180" height="100" rx="10"/>
+    <text class="title" x="420" y="182" text-anchor="middle">tunnel-server</text>
+    <text class="sub" x="420" y="202" text-anchor="middle">public host</text>
+    <text class="sub" x="420" y="220" text-anchor="middle">id.example.com</text>
+
+    <rect class="box" x="640" y="150" width="160" height="100" rx="10" style="stroke:var(--cyan)"/>
+    <text class="title" x="720" y="182" text-anchor="middle">share client</text>
+    <text class="sub" x="720" y="202" text-anchor="middle">your machine</text>
+    <text class="sub" x="720" y="220" text-anchor="middle">dialed out ↑</text>
+
+    <rect class="box app" x="640" y="300" width="160" height="60" rx="10"/>
+    <text class="title" x="720" y="328" text-anchor="middle">localhost:3000</text>
+
+    <!-- visitor -> server -->
+    <path id="t-vin" class="wire" d="M180,195 H330"/>
+    <!-- websocket server <-> client (the persistent pipe) -->
+    <path id="t-ws" class="wire flow" d="M510,190 H640" style="stroke:var(--cyan);stroke-dasharray:2 5"/>
+    <text class="lbl" x="575" y="178" text-anchor="middle">WebSocket</text>
+    <!-- client -> local app -->
+    <path id="t-local" class="wire" d="M720,250 V300"/>
+
+    <!-- request travelling all the way in -->
+    <g>
+      <circle r="7" fill="var(--blue)"/>
+      <text class="pkt-text" fill="var(--blue)" x="8" y="-8">GET /</text>
+      <animateMotion dur="6s" repeatCount="indefinite" keyTimes="0;0.2;1" keyPoints="0;1;1" calcMode="linear"><mpath href="#t-vin"/></animateMotion>
+    </g>
+    <g>
+      <circle r="6" fill="var(--blue)"/>
+      <animateMotion dur="6s" begin="1.2s" repeatCount="indefinite" keyTimes="0;0.25;1" keyPoints="0;1;1" calcMode="linear"><mpath href="#t-ws"/></animateMotion>
+    </g>
+    <g>
+      <circle r="6" fill="var(--blue)"/>
+      <animateMotion dur="6s" begin="2.4s" repeatCount="indefinite" keyTimes="0;0.3;1" keyPoints="0;1;1" calcMode="linear"><mpath href="#t-local"/></animateMotion>
+    </g>
+    <!-- response travelling back -->
+    <g>
+      <circle r="6" fill="var(--green)"/>
+      <animateMotion dur="6s" begin="3.4s" repeatCount="indefinite" keyTimes="0;0.3;1" keyPoints="1;0;0" calcMode="linear"><mpath href="#t-local"/></animateMotion>
+    </g>
+    <g>
+      <circle r="6" fill="var(--green)"/>
+      <animateMotion dur="6s" begin="4s" repeatCount="indefinite" keyTimes="0;0.3;1" keyPoints="1;0;0" calcMode="linear"><mpath href="#t-ws"/></animateMotion>
+    </g>
+    <g>
+      <circle r="7" fill="var(--green)"/>
+      <text class="pkt-text" fill="var(--green)" x="8" y="14">200 OK</text>
+      <animateMotion dur="6s" begin="4.6s" repeatCount="indefinite" keyTimes="0;0.3;1" keyPoints="1;0;0" calcMode="linear"><mpath href="#t-vin"/></animateMotion>
+    </g>
+  </svg>
+  <div class="legend">
+    <span><i style="background:var(--blue)"></i>request: visitor → server → (WebSocket) → your client → local app</span>
+    <span><i style="background:var(--green)"></i>response retraces the same path back</span>
+  </div>
+  <p class="note"><b>The trick:</b> the server can’t reach your laptop directly. So it <b>serializes</b> each HTTP request to JSON (body base64-encoded) and pushes it down the WebSocket your client already opened. The client replays it locally and sends the response back the same way.</p>
+</section>
+
+</main>
+
+<footer>
+  LocalLane — animated docs. Open this file in any browser; it runs fully offline.<br/>
+  Each scene maps to real source: <span class="mono">proxy/server.ts · proxy/router.ts · cert/* · daemon/* · system/port-forward.ts · tunnel/*</span>
+</footer>
+</body>
+</html>
